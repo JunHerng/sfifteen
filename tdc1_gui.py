@@ -435,9 +435,9 @@ class MainWindow(QMainWindow):
     # Plotting without logging
     # Connected to timer.timeout
     def live_update_which_data(self):
-        if self._dev_mode = 'singles':
+        if self._dev_mode == 'singles':
             self.live_update_counts_data
-        elif self._dev_mode = 'pairs':
+        elif self._dev_mode == 'pairs':
             self.live_update_coincidences_data
 
     def live_update_counts_data(self):
