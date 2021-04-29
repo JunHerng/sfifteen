@@ -57,7 +57,7 @@ class logWorker(QtCore.QObject):
         device_path, log_flag, dev_mode, tdc1_dev)
         elif dev_mode == 'pairs':
             print('initiating coincidences log...')
-            self.log_coincidences_data(file_name, \
+            self.log_g2(file_name, \
         device_path, log_flag, dev_mode, tdc1_dev)
         elif dev_mode == 'timestamp':
             print('initiating timestamp log')
@@ -113,7 +113,7 @@ class logWorker(QtCore.QObject):
                 f = open(file_name, 'w')
                 f.write('#time_stamp,coincidences\n')
             while self.active_flag == True:
-                coincidences = tdc1_dev.get_counts_and_coincidences(self.int_time)
+                coincidences = tdc1_dev.count_g2(self.int_time)
                 now = time.time()
                 self.data_is_logged.emit(coincidences, dev_mode, self.radio_flags)
                 with open(file_name, 'a+') as f:
@@ -133,29 +133,18 @@ class logWorker(QtCore.QObject):
         self.thread_finished.emit('Finished logging')
 
     # Modify this to plot without logging
-    def log_timestamp_and_plot_g2(self, file_name: str, \
+    def log_g2(self, file_name: str, \
         device_path: str, log_flag: bool, dev_mode: str, tdc1_dev: object):
         # Performs all the actions of log_counts_data PLUS gathering the data to plot histogram
         # tdc1_dev.get_timestamps() automatically puts device in timestamp mode (3)
-        start = time.time()
-        now = start
-        if log_flag == True and self.active_flag == True:
-            try:
-                open(file_name)
-            except IOError:
-                f = open(file_name, 'w')
-                f.write('#time_stamp,channel\n')
-            while self.active_flag == True:
-                timestamps = tdc1_dev.get_timestamps(self.int_time)
-                # get_timestamps -> Tuple[List[float], List[str]]
-                for i in len(timestamps):
-                    data_pairs = '{},{}\n'.format(timestamps[0][i], timestamps[1][i])
-                    f.write(data_pairs)
-                if self.active_flag == False:
-                    break
-        g2_dict = tdc1_dev.count_g2(self.int_time)
-        self.histogram_logged.emit(g2_dict)
-
+        while self.active_flag == True:
+            g2_dict = tdc1_dev.count_g2(self.int_time, ch_start=1, ch_stop=3)
+            self.histogram_logged.emit(g2_dict)
+            if self.active_flag == False:
+                break
+        self.thread_finished.emit('Finished logging')
+        
+        
 
 class MainWindow(QMainWindow):
     """[summary]
@@ -173,16 +162,20 @@ class MainWindow(QMainWindow):
         """
         super(MainWindow, self).__init__(*args, **kwargs)
 
-        self.integration_time = 1
-        self._logfile_name = '' # Track the logfile(csv) being used by GUI
-        self.device_path = '' # Device path, eg. 'COM4'
-        self.log_flag = False  # Flag to track if data is being logged to csv file
         self._tdc1_dev = None  # tdc1 device object
         self._dev_mode = '' # 0 = 'singles', 1 = 'pairs', 3 = 'timestamp'
-        self._plot_tab = 0  # Counts graph = 0, Coincidences graph = 1
+        self.device_path = '' # Device path, eg. 'COM4'
+
+        self.integration_time = 1
+        self._logfile_name = '' # Track the logfile(csv) being used by GUI
+        
+        self.log_flag = False  # Flag to track if data is being logged to csv file
         self.acq_flag = False # Track if data is being acquired
-        self.logger = None # Variable that will hold the logWorker object
         self._radio_flags = [1,1,1,1] # Tracking which radio buttons are selected. All 1s by default
+        
+        self._plot_tab = 0  # Counts graph = 0, Coincidences graph = 1
+        self.logger = None # Variable that will hold the logWorker object
+        
 
         self.initUI() # UI is initialised afer the class variables are defined
 
@@ -203,34 +196,22 @@ class MainWindow(QMainWindow):
         self.selectLogfile_Button.clicked.connect(self.selectLogfile)
         self.selectLogfile_Button.setFixedSize(QSize(115, 23))
 
-        #self.startLogging_Button = QtWidgets.QPushButton("Start Logging", self)
-        #self.startLogging_Button.clicked.connect(self.startLogging)
-        #self.startLogging_Button.setFixedSize(QSize(115, 23))
-        #self.startLogging_Button.setEnabled(False)
-
-        self.updateDeviceMode_Button = QtWidgets.QPushButton("Update Device Mode", self)
-        self.updateDeviceMode_Button.clicked.connect(self.updateDeviceMode)
-
         # setAutoExclusive method is used to toggle the radio buttons independently.
         self.radio1_Button = QRadioButton("Channel 1", self)
         self.radio1_Button.setStyleSheet('color: red')
         self.radio1_Button.setAutoExclusive(False)
-        #self.radio1_Button.setChecked(True)
         self.radio1_Button.toggled.connect(lambda: self.displayPlot1(self.radio1_Button))
         self.radio2_Button = QRadioButton("Channel 2", self)
         self.radio2_Button.setStyleSheet('color: green')
         self.radio2_Button.setAutoExclusive(False)
-        #self.radio2_Button.setChecked(True)
         self.radio2_Button.toggled.connect(lambda: self.displayPlot2(self.radio2_Button))
         self.radio3_Button = QRadioButton("Channel 3", self)
         self.radio3_Button.setStyleSheet('color: blue')
         self.radio3_Button.setAutoExclusive(False)
-        #self.radio3_Button.setChecked(True)
         self.radio3_Button.toggled.connect(lambda: self.displayPlot3(self.radio3_Button))
         self.radio4_Button = QRadioButton("Channel 4", self)
         self.radio4_Button.setStyleSheet('color: black')
         self.radio4_Button.setAutoExclusive(False)
-        #self.radio4_Button.setChecked(True)
         self.radio4_Button.toggled.connect(lambda: self.displayPlot4(self.radio4_Button))
         #---------Buttons---------#
 
@@ -238,7 +219,6 @@ class MainWindow(QMainWindow):
         #---------Labels---------#
         self.deviceLabel = QtWidgets.QLabel("Device:", self)
         self.deviceModeLabel = QtWidgets.QLabel("Device Mode:", self)
-        self.deviceModeText = QtWidgets.QLabel("")
 
         self.logfileLabel = QtWidgets.QLabel('')
 
@@ -256,13 +236,15 @@ class MainWindow(QMainWindow):
         dev_list = serial_connection.search_for_serial_devices(
             tdc1.TimeStampTDC1.DEVICE_IDENTIFIER)
         self.devCombobox = QComboBox(self)
+        self.devCombobox.addItem('Select your device')
         self.devCombobox.addItems(dev_list)
+        self.devCombobox.currentTextChanged.connect(self.selectDevice)
 
         dev_modes = ['singles', 'pairs', 'timestamp']
         self.modesCombobox = QComboBox(self)
+        self.modesCombobox.addItem('Select mode')
         self.modesCombobox.addItems(dev_modes)
         self.modesCombobox.currentTextChanged.connect(self.updateDeviceMode)
-        self.modesCombobox.setEnabled(False)
 
         #---------Interactive Fields---------#
 
@@ -277,9 +259,9 @@ class MainWindow(QMainWindow):
         self.y4 = []
         self.y_data = [self.y1, self.y2, self.y3, self.y4]
 
-        # Plot 2 - Time difference histogram (Channel cross-correlation)
-        self.x0 = []
-        self.y0 = []
+        # Plot 2 - Time difference histogram (Channel cross-correlation), 500 bins of 2ms
+        self.x0 = np.arange(0, 1000, 2)
+        self.y0 = np.zeros_like(self.x0)
         
         font = QtGui.QFont("Arial", 18)     
         labelStyle = '<span style=\"color:black;font-size:25px\">'
@@ -311,7 +293,7 @@ class MainWindow(QMainWindow):
         self.lineStyle2 = pg.mkPen(width=2, color='g') # Green
         self.lineStyle3 = pg.mkPen(width=2, color='b') # Blue
         self.lineStyle4 = pg.mkPen(width=2, color='k') # Black
-        self.lineStyle0 = pg.mkPen(width=2, color='r')
+        self.lineStyle0 = pg.mkPen(width=1, color='r')
 
         # Plotting the graph - https://pyqtgraph.readthedocs.io/en/latest/plotting.html for organisation of plotting classes
         # Take note: multiple plotDataItems can sit on one plotWidget
@@ -321,13 +303,6 @@ class MainWindow(QMainWindow):
         self.linePlot4 = self.tdcPlot.plot(self.x, self.y4, pen=self.lineStyle4)
         self.histogramPlot = self.tdcPlot2.plot(self.x0, self.y0, pen=self.lineStyle0, symbol = 'x', symbolPen = 'b', symbolBrush = 0.2)
         self.linePlots = [self.linePlot1, self.linePlot2, self.linePlot3, self.linePlot4]
-
-        #self.tdcPlotLegend = pg.LegendItem()
-        #self.tdcPlotLegend.addItem(self.linePlot1, 'Channel 1')
-        #elf.tdcPlotLegend.addItem(self.linePlot2, 'Channel 2')
-        #self.tdcPlotLegend.addItem(self.linePlot3, 'Channel 3')
-        #self.tdcPlotLegend.addItem(self.linePlot4, 'Channel 4')
-        #self.tdcPlotLegend.setParentItem(self.tdcPlot)
         #---------PLOTS---------#
 
         
@@ -363,9 +338,7 @@ class MainWindow(QMainWindow):
         self.grid.addWidget(self.modesCombobox, 0, 3)
         self.grid.addWidget(self.integrationLabel, 1, 0)
         self.grid.addWidget(self.integrationSpinBox, 1, 1)
-        self.grid.addWidget(self.updateDeviceMode_Button, 1, 2)
         self.grid.addWidget(self.liveStart_Button, 2, 0)
-        #self.grid.addWidget(self.startLogging_Button, 2, 1)
         self.grid.addWidget(self.selectLogfile_Button, 2, 2)
         self.grid.addWidget(self.logfileLabel, 2, 3)
         self.grid.addWidget(self.tabs, 4, 0, 5, 4)
@@ -383,13 +356,24 @@ class MainWindow(QMainWindow):
         self.mainwidget.setLayout(self.mainwidget.layout)
         self.setCentralWidget(self.mainwidget)
 
-    # Connected to updateDeviceMode_Button
-    @QtCore.pyqtSlot()
-    def updateDeviceMode(self):
-        modez: str = self._tdc1_dev.mode
-        self._dev_mode = modez
-        self.deviceModeText.setText(modez)
 
+    # Connected to devComboBox.currentTextChanged
+    @QtCore.pyqtSlot(str)
+    def selectDevice(self, devPath: str):
+        if devPath != 'Select your device':
+            self._tdc1_dev = tdc1.TimeStampTDC1(devPath)
+            self.device_path = devPath
+            self._dev_mode = self._tdc1_dev.mode
+
+    # Connected to modesCombobox.currentTextChanged
+    @QtCore.pyqtSlot(str)
+    def updateDeviceMode(self, newMode: str):
+        if newMode != 'Select mode':
+            if self._tdc1_dev == None:
+                self._tdc1_dev = tdc1.TimeStampTDC1(self.device_path)
+            self._tdc1_dev.mode = newMode # Setting tdc1 mode with @setter
+            self._dev_mode = newMode
+        
     # Update plot index on plot tab change
     @QtCore.pyqtSlot()
     def update_plot_tab(self):
@@ -407,32 +391,23 @@ class MainWindow(QMainWindow):
     @QtCore.pyqtSlot()
     # Connected to self.liveStart_button.clicked
     def liveStart(self):
-        # === Add in more functions to reset GUI to base state === #
         #If currently live plotting
         if self.acq_flag is True and self.liveStart_Button.text() == "Live Stop":
             self.acq_flag = False
-            self.logger.active_flag = False # Sets logger flag to break the while loop
+            self.logger.active_flag = False # To stop logger from looping
             self.selectLogfile_Button.setEnabled(True)
-            self.modesCombobox.setEnabled(False)
             self.liveStart_Button.setText("Live Start")
+            time.sleep(self.integration_time + 2) # Pause to let all loops end
             self._tdc1_dev = None # Destroy tdc1_dev object
-            
-            #if self._logfile_name != '':
-            #   self.startLogging_Button.setEnabled(True)
+            self.logger = None # Destroy logger
+            self.logger_thread = None # and thread...?
         #If not currently live plotting
         else:
-            self._tdc1_dev = tdc1.TimeStampTDC1(self.devCombobox.currentText())
-            self.device_path = self.devCombobox.currentText()
-            self._dev_mode = self._tdc1_dev.mode
+            if self._tdc1_dev == None:
+                self._tdc1_dev = tdc1.TimeStampTDC1(self.devCombobox.currentText())
             self.acq_flag = True
             # Initialise empty lists to hold data
-            self.x = []
-            self.y1 = []
-            self.y2 = []
-            self.y3 = []
-            self.y4 = []
-            self.x0 = []
-            self.y0 = []
+            self.resetDataAndPlots()
             self.selectLogfile_Button.setEnabled(False)
             self.modesCombobox.setEnabled(True)
             self.liveStart_Button.setText("Live Stop")
@@ -444,9 +419,6 @@ class MainWindow(QMainWindow):
         """[summary]
         Creation process of worker object and QThread.
         """
-        #slbtext = self.startLogging_Button.text()
-
-        #self.startLogging_Button.setText("Stop Logging")
         # Create worker instance and a thread
         self.logger = logWorker()
         self.logger_thread = QtCore.QThread(self) # QThread is not a thread, but a thread MANAGER
@@ -455,12 +427,12 @@ class MainWindow(QMainWindow):
         self.logger.moveToThread(self.logger_thread)
         self.logger_thread.start() # This is where the thread is actually created, I think
 
-        self.logger.int_time = int(self.integrationSpinBox.text()) * 1e-3 # Convert to seconds
-
         # Connect signals and slots AFTER moving the object to the thread
         self.logging_requested.connect(self.logger.log_which_data)
         self.logger.data_is_logged.connect(self.update_data_from_thread)
         self.logger.histogram_logged.connect(self.updateHistogram)
+
+        self.logger.int_time = int(self.integrationSpinBox.text()) * 1e-3 # Convert to seconds
         #self.log_flag = True
         self.logging_requested.emit(self._logfile_name, \
         self.device_path, self.log_flag, self._dev_mode, self._tdc1_dev)
@@ -506,7 +478,7 @@ class MainWindow(QMainWindow):
             if radio_flags[i] == 1:
                 self.linePlots[i].setData(self.x, self.y_data[i])
 
-    
+
     # Radio button slots (functions)
     @QtCore.pyqtSlot('PyQt_PyObject')
     def displayPlot1(self, b: QRadioButton):
@@ -570,16 +542,11 @@ class MainWindow(QMainWindow):
         # {int - ch_start counts, int- ch_stop counts, int - actual acq time, float - time bins, float - histogram values}
         # time bins and histogram vals are both np arrays...?
         # work off the assumption that it's true
-        self.x0 = g2_data('time_bins')
-        self.y0 = g2_data('histogram')
-        print(type(self.x0))
-        print(type(self.yo))
-        if len(self.x0) >= PLT_SAMPLES:
-            del_index = np.arange(PLT_SAMPLES, len(self.x0))
-            np.delete(self.x0, del_index)
-            np.delete(self.y0, del_index) # Shorten the plot data to 500 data points
-        # Update the graph
-            self.histogramPlot.setData(self.x0, self.y0)
+        incremental_y = g2_data['histogram']
+        incremental_y_int = incremental_y.astype(np.int32)
+        print(incremental_y_int)
+        self.y0 += incremental_y_int
+        self.histogramPlot.setData(self.x0, self.y0)
 
     @QtCore.pyqtSlot(str)
     def changeDevMode(self, mode: str):
@@ -590,8 +557,8 @@ class MainWindow(QMainWindow):
         self.logger.active_flag = False
 
     def resetDataAndPlots(self):
-        self.x0=[]
-        self.y0=[]
+        self.x0=np.arange(0,1000,2)
+        self.y0=np.zeros_like(self.x0)
         self.x=[]
         self.y1=[]
         self.y2=[]
@@ -602,6 +569,36 @@ class MainWindow(QMainWindow):
         self.linePlot3.setData(self.x, self.y3)
         self.linePlot4.setData(self.x, self.y4)
         self.histogramPlot.setData(self.x0, self.y0)
+        self.radio1_Button.setChecked(False)
+        self.radio2_Button.setChecked(False)
+        self.radio3_Button.setChecked(False)
+        self.radio4_Button.setChecked(False)
+
+    # For future use
+    def resetInternalVariables(self):
+        self._tdc1_dev = None  # tdc1 device object
+        self._dev_mode = '' # 0 = 'singles', 1 = 'pairs', 3 = 'timestamp'
+        self.device_path = '' # Device path, eg. 'COM4'
+
+        self.integration_time = 1
+        self._logfile_name = '' # Track the logfile(csv) being used by GUI
+        
+        self.log_flag = False  # Flag to track if data is being logged to csv file
+        self.acq_flag = False # Track if data is being acquired
+        self._radio_flags = [1,1,1,1] # Tracking which radio buttons are selected. All 1s by default
+        
+        self._plot_tab = 0  # Counts graph = 0, Coincidences graph = 1
+        self.logger = None # Variable that will hold the logWorker object
+
+    # For future use
+    def resetGUIelements(self):
+        self.liveStart_Button.setEnabled(True)
+        self.selectLogfile_Button.setEnabled(True)
+        self.logfileLabel.setText('')
+        self.radio1_Button.setChecked(False)
+        self.radio2_Button.setChecked(False)
+        self.radio3_Button.setChecked(False)
+        self.radio4_Button.setChecked(False)
 
 
 
@@ -620,7 +617,7 @@ if __name__ == '__main__':
 ######################
 
 # 1. Only communicate with worker via Signals and Slots
-#   - Do not call any of its methods from the main thread
+#   - Do not call any of its methods from the main thread -> But variables are fine...?
 
 
 ######################
