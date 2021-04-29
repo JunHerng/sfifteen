@@ -49,7 +49,6 @@ class logWorker(QtCore.QObject):
     @QtCore.pyqtSlot(str, str, bool, str, object)
     def log_which_data(self, file_name: str, \
         device_path: str, log_flag: bool, dev_mode: str, tdc1_dev: object):
-        print('logging signal received')
         self.active_flag = True
         if dev_mode == 'singles':
             print('initiating singles log...')
@@ -436,7 +435,6 @@ class MainWindow(QMainWindow):
         #self.log_flag = True
         self.logging_requested.emit(self._logfile_name, \
         self.device_path, self.log_flag, self._dev_mode, self._tdc1_dev)
-        print('logging signal emitted')
 
     @QtCore.pyqtSlot()
     def selectLogfile(self):
@@ -544,7 +542,6 @@ class MainWindow(QMainWindow):
         # work off the assumption that it's true
         incremental_y = g2_data['histogram']
         incremental_y_int = incremental_y.astype(np.int32)
-        print(incremental_y_int)
         self.y0 += incremental_y_int
         self.histogramPlot.setData(self.x0, self.y0)
 
