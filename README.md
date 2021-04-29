@@ -1,5 +1,11 @@
 # sfifteen tdc1 GUI (1.0)
 
+INSTALLATION
+
+1. Follow instructions at https://github.com/s-fifteen-instruments/pyS15 and install S15lib python package.
+2. Other package requirements: numpy, pyqt5, pyqtgraph, datetime, time
+3. Run tdc_gui.py
+
 HOW TO USE
 
 1. Ensure device is connected to PC.
