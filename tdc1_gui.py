@@ -42,7 +42,7 @@ class logWorker(QtCore.QObject):
     def __init__(self):
         super(logWorker, self).__init__()
         self.active_flag = False
-        self.radio_flags = [0,0,0,0] # 0 represents unchecked radio button
+        self.radio_flags = [0,0,0,0] # 0 represents unchecked radio button, 1 for checked
         self.int_time = 1
     
     # Connected to MainWindow.logging_requested
@@ -144,7 +144,6 @@ class logWorker(QtCore.QObject):
         self.thread_finished.emit('Finished logging')
         
         
-
 class MainWindow(QMainWindow):
     """[summary]
     Main window class containing the main window and its associated methods. 
@@ -152,7 +151,6 @@ class MainWindow(QMainWindow):
         QMainWindow (QObject): See qt documentation for more info.
     """
     # Send logging parameters to worker method
-    # int str str bool str object
     logging_requested = QtCore.pyqtSignal(str, str, bool, str, object)
     
     def __init__(self, *args, **kwargs):
@@ -170,17 +168,17 @@ class MainWindow(QMainWindow):
         
         self.log_flag = False  # Flag to track if data is being logged to csv file
         self.acq_flag = False # Track if data is being acquired
-        self._radio_flags = [1,1,1,1] # Tracking which radio buttons are selected. All 1s by default
+        self._radio_flags = [0,0,0,0] # Tracking which radio buttons are selected. All 0s by default
         
-        self._plot_tab = 0  # Counts graph = 0, Coincidences graph = 1
         self.logger = None # Variable that will hold the logWorker object
+        self.logger_thread = None # Variable that will hold the QThread object
         
-
         self.initUI() # UI is initialised afer the class variables are defined
 
+        self._plot_tab = self.tabs.currentIndex()  # Counts graph = 0, Coincidences graph = 1
+
         
 
-    
     def initUI(self):
         """[summary]
         Contains all the UI elements and associated functionalities.
@@ -227,7 +225,7 @@ class MainWindow(QMainWindow):
 
         #---------Interactive Fields---------#
         self.integrationSpinBox = QSpinBox(self)
-        self.integrationSpinBox.setRange(0, 65535)
+        self.integrationSpinBox.setRange(0, 65535)  # Max integration time based on tdc1 specs
         self.integrationSpinBox.setValue(1000) # Default 1000ms = 1s
         self.integrationSpinBox.setKeyboardTracking(False) # Makes sure valueChanged signal only fires when you want it to
         self.integrationSpinBox.valueChanged.connect(self.update_intTime)
@@ -239,11 +237,11 @@ class MainWindow(QMainWindow):
         self.devCombobox.addItems(dev_list)
         self.devCombobox.currentTextChanged.connect(self.selectDevice)
 
-        dev_modes = ['singles', 'pairs', 'timestamp']
+        dev_modes = ['singles', 'pairs']
         self.modesCombobox = QComboBox(self)
         self.modesCombobox.addItem('Select mode')
         self.modesCombobox.addItems(dev_modes)
-        self.modesCombobox.currentTextChanged.connect(self.updateDeviceMode)
+        self.modesCombobox.currentTextChanged.connect(self.selectDeviceMode)
 
         #---------Interactive Fields---------#
 
@@ -262,7 +260,7 @@ class MainWindow(QMainWindow):
         self.x0 = np.arange(0, 1000, 2)
         self.y0 = np.zeros_like(self.x0)
         
-        font = QtGui.QFont("Arial", 18)     
+        font = QtGui.QFont("Arial", 24)     
         labelStyle = '<span style=\"color:black;font-size:25px\">'
 
         # Setting up plot window 1 (Plot Widget)
@@ -359,19 +357,31 @@ class MainWindow(QMainWindow):
     # Connected to devComboBox.currentTextChanged
     @QtCore.pyqtSlot(str)
     def selectDevice(self, devPath: str):
-        if devPath != 'Select your device':
-            self._tdc1_dev = tdc1.TimeStampTDC1(devPath)
-            self.device_path = devPath
-            self._dev_mode = self._tdc1_dev.mode
+        # Only allow resetting + changing device if not currently collecting data
+        # Add msg box to allow user confirmation
+        if self.acq_flag == False:
+            self.StrongResetInternalVariables()
+            self.resetDataAndPlots()
+            self.resetGUIelements()
+            if devPath != 'Select your device':
+                self._tdc1_dev = tdc1.TimeStampTDC1(devPath)
+                self.device_path = devPath
+            
 
     # Connected to modesCombobox.currentTextChanged
     @QtCore.pyqtSlot(str)
-    def updateDeviceMode(self, newMode: str):
-        if newMode != 'Select mode':
-            if self._tdc1_dev == None:
-                self._tdc1_dev = tdc1.TimeStampTDC1(self.device_path)
-            self._tdc1_dev.mode = newMode # Setting tdc1 mode with @setter
-            self._dev_mode = newMode
+    def selectDeviceMode(self, newMode: str):
+        # Only allow resetting + device mode change if not currently collecting data
+        # Add msg box to allow user confirmation
+        if self.acq_flag == False:
+            self.WeakResetInternalVariables()
+            self.resetDataAndPlots()
+            self.resetGUIelements()
+            if newMode != 'Select mode':
+                if self._tdc1_dev == None:
+                    self._tdc1_dev = tdc1.TimeStampTDC1(self.device_path)
+                self._tdc1_dev.mode = newMode # Setting tdc1 mode with @setter
+                self._dev_mode = newMode
         
     # Update plot index on plot tab change
     @QtCore.pyqtSlot()
@@ -396,7 +406,7 @@ class MainWindow(QMainWindow):
             self.logger.active_flag = False # To stop logger from looping
             self.selectLogfile_Button.setEnabled(True)
             self.liveStart_Button.setText("Live Start")
-            time.sleep(self.integration_time + 2) # Pause to let all loops end
+            time.sleep(1) # Pause to let all loops end
             self._tdc1_dev = None # Destroy tdc1_dev object
             self.logger = None # Destroy logger
             self.logger_thread = None # and thread...?
@@ -405,7 +415,6 @@ class MainWindow(QMainWindow):
             if self._tdc1_dev == None:
                 self._tdc1_dev = tdc1.TimeStampTDC1(self.devCombobox.currentText())
             self.acq_flag = True
-            # Initialise empty lists to hold data
             self.resetDataAndPlots()
             self.selectLogfile_Button.setEnabled(False)
             self.modesCombobox.setEnabled(True)
@@ -438,14 +447,20 @@ class MainWindow(QMainWindow):
 
     @QtCore.pyqtSlot()
     def selectLogfile(self):
-        default_filetype = 'csv'
-        start = datetime.now().strftime("%Y%m%d_%Hh%Mm%Ss ") + "_TDC1." + default_filetype
-        self._logfile_name = QtGui.QFileDialog.getSaveFileName(
-            self, "Save to log file", start)[0]
-        self.logfileLabel.setText(self._logfile_name)
-        if self._logfile_name != '':
-            #self.startLogging_Button.setEnabled(True)
-            self.log_flag = True
+        if self.acq_flag == False:
+            if self.selectLogfile_Button.text() == 'Select logfile':
+                default_filetype = 'csv'
+                start = datetime.now().strftime("%Y%m%d_%Hh%Mm%Ss ") + "_TDC1." + default_filetype
+                self._logfile_name = QtGui.QFileDialog.getSaveFileName(
+                    self, "Save to log file", start)[0]
+                self.logfileLabel.setText(self._logfile_name)
+                if self._logfile_name != '':
+                    #self.startLogging_Button.setEnabled(True)
+                    self.log_flag = True
+                    self.selectLogfile_Button.setText('Unselect logfile')
+            elif self.selectLogfile_Button.text() == 'Unselect logfile':
+                self.logfileLabel.setText('')
+                self.selectLogfile_Button.setText('Select logfile')
 
             
     # Updating data
@@ -545,13 +560,38 @@ class MainWindow(QMainWindow):
         self.y0 += incremental_y_int
         self.histogramPlot.setData(self.x0, self.y0)
 
-    @QtCore.pyqtSlot(str)
-    def changeDevMode(self, mode: str):
-        self._tdc1_dev.mode = mode
-        # Add in a qmessagebox to confirm manual mode switch
-        # Reset all data and plots on confirmation
-        self.acq_flag = False
-        self.logger.active_flag = False
+    # For future use
+    def StrongResetInternalVariables(self):
+        self.integration_time = 1
+        self._logfile_name = '' # Track the logfile(csv) being used by GUI
+        self.resetWorkerAndThread()
+
+        self._tdc1_dev = None  # tdc1 device object
+        self._dev_mode = '' # 0 = 'singles', 1 = 'pairs', 3 = 'timestamp'
+        self.device_path = '' # Device path, eg. 'COM4'
+
+    def WeakResetInternalVariables(self):
+        # Excludes resetting variables relating to the device object (device, mode, path)
+        self.integration_time = 1
+        self._logfile_name = '' # Track the logfile(csv) being used by GUI
+        self.resetWorkerAndThread()
+
+    def resetWorkerAndThread(self):
+        time.sleep(2) # To allow threads to end
+        self.logger = None
+        self.logger_thread = None
+
+
+    # For future use
+    def resetGUIelements(self):
+        self.liveStart_Button.setEnabled(True)
+        self.selectLogfile_Button.setEnabled(True)
+        self.logfileLabel.setText('')
+        self.radio1_Button.setChecked(False)
+        self.radio2_Button.setChecked(False)
+        self.radio3_Button.setChecked(False)
+        self.radio4_Button.setChecked(False)
+        self.integrationSpinBox.setValue(1000)
 
     def resetDataAndPlots(self):
         self.x0=np.arange(0,1000,2)
@@ -570,33 +610,7 @@ class MainWindow(QMainWindow):
         self.radio2_Button.setChecked(False)
         self.radio3_Button.setChecked(False)
         self.radio4_Button.setChecked(False)
-
-    # For future use
-    def resetInternalVariables(self):
-        self._tdc1_dev = None  # tdc1 device object
-        self._dev_mode = '' # 0 = 'singles', 1 = 'pairs', 3 = 'timestamp'
-        self.device_path = '' # Device path, eg. 'COM4'
-
-        self.integration_time = 1
-        self._logfile_name = '' # Track the logfile(csv) being used by GUI
-        
-        self.log_flag = False  # Flag to track if data is being logged to csv file
-        self.acq_flag = False # Track if data is being acquired
-        self._radio_flags = [1,1,1,1] # Tracking which radio buttons are selected. All 1s by default
-        
-        self._plot_tab = 0  # Counts graph = 0, Coincidences graph = 1
-        self.logger = None # Variable that will hold the logWorker object
-
-    # For future use
-    def resetGUIelements(self):
-        self.liveStart_Button.setEnabled(True)
-        self.selectLogfile_Button.setEnabled(True)
-        self.logfileLabel.setText('')
-        self.radio1_Button.setChecked(False)
-        self.radio2_Button.setChecked(False)
-        self.radio3_Button.setChecked(False)
-        self.radio4_Button.setChecked(False)
-
+        self._radio_flags = [0,0,0,0]
 
 
 def main():
