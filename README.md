@@ -10,8 +10,8 @@ HOW TO USE
 
 1. Ensure device is connected to PC.
 2. Select device port from drop down menu.
-3. Select mode - singles/pairs. (This is NOT equivalent to the TDC1 mode. For instance the pairs mode uses the TDC1's timestamp mode (3) for its g2 calculations.)
-4. Select log file if logging is desired.
+3. Select mode - singles/pairs. (This is NOT equivalent to the TDC1 mode. For instance the pairs mode uses the TDC1's timestamp mode (3) for its g2 calculations. The modes correspond to the tabs - singles:counts, pairs:coincidences.)
+4. Select log file if logging is desired. Leave empty if not desired.
 5. Select integration time (singles) / acquisition time (pairs) by pressing the arrows or typing in manually.
 6. Hit 'Live Start' button.
 7. If in singles mode, select the respective radio buttons to see the plots.
