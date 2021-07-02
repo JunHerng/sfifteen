@@ -6,6 +6,8 @@ INSTALLATION
 2. Other package requirements: numpy, pyqt5, pyqtgraph, datetime, time.
 3. Run tdc1_gui.py.
 
+![image](https://user-images.githubusercontent.com/52197879/124213246-cecf5f80-db22-11eb-932d-57dfb3ce32bd.png)
+
 HOW TO USE
 
 1. Ensure device is connected to PC.
